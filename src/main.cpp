@@ -1,10 +1,9 @@
 #include <Arduino.h>
 #include <EEPROM.h>
-#include <LiquidCrystal.h>
 #include <Servo.h>
 #include <AHTxx.h>
+#include <LiquidCrystal_I2C.h>
 #include <Wire.h>
-#include "EEPROMAnything.h"
 
 void setTime();
 void setTempratureAndHumidity();
@@ -15,7 +14,6 @@ void menu();
 void Siren(bool Enabled);
 void servoMotor();
 void timeCounter();
-
 /*
 TODO:
 ghabeliate taghire etelaate namaieshi ba charkhandan rotary encoder
@@ -49,15 +47,13 @@ AHTxx AHT10Sensor(AHTXX_ADDRESS_X38, AHT1x_SENSOR);
 // for EEPROM
 // Addreses for EEPROM
 byte secondAddr = 0, minuteAddr = 1, hourAddr = 2, dayAddr = 3;
-byte ServoPositionAddr = 4, T_thresholdAddr = 5, H_thresholdAddr = 6, modeAddr = 7;
+byte ServoPositionAddr = 4, modeAddr = 5, H_thresholdAddr = 6, T_thresholdAddr = 7;
 
 // Servo //
 Servo servo;
 byte servoPosition = 0;
 
-// for LCD Display Pins //
-const byte rs = 8, en = 9, d4 = 10, d5 = 11, d6 = 12, d7 = 13;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+LiquidCrystal_I2C lcd(0x27, 20, 4); // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 byte TempIcon[8] = {B01110, B01010, B01010, B01110, B01110, B11111, B11111, B01110};
 byte HumidityIcon[8] = {B00100, B00100, B01110, B01110, B11111, B11111, B11111, B01110};
@@ -108,9 +104,6 @@ unsigned int delaySensorValue = 0;
 void setup()
 {
 
-  EEPROM_readAnything(secondAddr, Sec);
-  EEPROM_writeAnything(secondAddr, Sec);
-
   pinMode(lampPin, OUTPUT);
   // pinMode(fanPin, OUTPUT); // required for digitalWrite
   pinMode(speakerPin, OUTPUT);
@@ -122,30 +115,33 @@ void setup()
   digitalWrite(lampPin, LOW);
   analogWrite(fanPin, 0);
   digitalWrite(speakerPin, LOW);
-  //  digitalWrite(ok, HIGH);// WHAT?
-  //  digitalWrite(UP, HIGH);// WHAT?
-  //  digitalWrite(DOWN, HIGH);// WHAT?
+
+  //  EEPROM.write(secondAddr,40); // for set Values in EEPROM
+  //  EEPROM.write(minuteAddr,30);
+  //  EEPROM.write(hourAddr,18);
+  //  EEPROM.write(dayAddr,11);
+  //  EEPROM.write(ServoPositionAddr,0);
+  //  EEPROM.write(modeAddr,3);
+  //  EEPROM.write(H_thresholdAddr,60);
+  //  EEPROM.put(T_thresholdAddr ,38.0);
 
   Sec = EEPROM.read(secondAddr);
   Min = EEPROM.read(minuteAddr);
   Hrs = EEPROM.read(hourAddr);
   Day = EEPROM.read(dayAddr);
-
-  //  EEPROM.put(T_thresholdAddr ,T_threshold);
-  T_threshold = EEPROM.get(T_thresholdAddr, T_threshold);
-  H_threshold = EEPROM.read(H_thresholdAddr);
   servoPosition = EEPROM.read(ServoPositionAddr);
+  mode = EEPROM.read(modeAddr);
+  H_threshold = EEPROM.read(H_thresholdAddr);
 
-  // EEPROM.write(modeAddr , 3); // Caution
-  mode = EEPROM.read(8);
+  T_threshold = EEPROM.get(T_thresholdAddr, T_threshold);
 
   Serial.begin(9600);
-  lcd.begin(16, 2);
+
+  lcd.init();
+  lcd.backlight();
   lcd.createChar(0, TempIcon);
   lcd.createChar(1, HumidityIcon);
   lcd.createChar(2, degreIcon);
-
-  Serial.println(EEPROM.read(modeAddr));
 
   lastStateCLK = digitalRead(CLK); // for rotary Encoder
 
@@ -679,7 +675,6 @@ void setTempratureAndHumidity()
           }
 
           EEPROM.put(T_thresholdAddr, T_threshold);
-          // EEPROM.write(T_thresholdAddr , (float) T_threshold);
           lcd.setCursor(0, 1);
           lcd.print(T_threshold);
           lcd.write((byte)2);
@@ -699,7 +694,6 @@ void setTempratureAndHumidity()
           }
 
           EEPROM.put(T_thresholdAddr, T_threshold);
-          //            EEPROM.write(T_thresholdAddr , (float) T_threshold);
           lcd.setCursor(0, 1);
           lcd.print(T_threshold);
           lcd.write((byte)2);
@@ -717,7 +711,6 @@ void setTempratureAndHumidity()
           delay(300);
           T_condition = false;
           EEPROM.put(T_thresholdAddr, T_threshold);
-          //          EEPROM.write(T_thresholdAddr , (float) T_threshold);
           Serial.print(T_threshold);
           Serial.print(F("C"));
         }
@@ -729,7 +722,6 @@ void setTempratureAndHumidity()
         AutoSet = 0;
         T_condition = false;
         EEPROM.put(T_thresholdAddr, T_threshold);
-        //        EEPROM.write(T_thresholdAddr , T_threshold);
         Serial.print(T_threshold);
         Serial.print(F("C"));
       }
@@ -1413,7 +1405,6 @@ void timeCounter()
         onlyOnceRotate = true;
       }
     }
-
     EEPROM.write(minuteAddr, Min);
     EEPROM.write(hourAddr, Hrs);
   }
