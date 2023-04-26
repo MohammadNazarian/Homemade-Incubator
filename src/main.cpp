@@ -10,11 +10,15 @@ void goToSetStatus();
 void readSensors();
 int average(int *array, int len);
 
+#define lampPin 3
+#define fanPin 6
+#define speakerPin 7
 #define DHT11_PIN 4
 #define DHTTYPE DHT11
+
 DHT dht(DHT11_PIN, DHTTYPE);
 
-const byte probe = 3; // reading probes
+const byte probe = 5; // reading probes for average temp and humidity
 // globals
 int index = 0;
 int baselineTemp;
@@ -51,17 +55,27 @@ Servo servo;
 int servoPosition = 0;
 
 // for LCD Display Pins //
-const int rs = 8;
-const int en = 9;
-const int d4 = 10;
-const int d5 = 11;
-const int d6 = 12;
-const int d7 = 13;
+const byte rs = 8, en = 9, d4 = 10, d5 = 11, d6 = 12, d7 = 13;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
-// Lamp , fan //
-const int lamp = 3;
-const int fan = 6;
+byte TempIcon[8] = {
+    B01110,
+    B01010,
+    B01010,
+    B01110,
+    B01110,
+    B11111,
+    B11111,
+    B01110};
+byte HumidityIcon[8] = {
+    B00100,
+    B00100,
+    B01110,
+    B01110,
+    B11111,
+    B11111,
+    B11111,
+    B01110};
 
 // Buttons //
 const int ok = A1;
@@ -86,33 +100,31 @@ int T_threshold = 0;
 int H_threshold = 0;
 
 // for Status //
+// byte ack = 0;
 byte SET = 1;
 byte timeStatus = 0;
-// byte ack = 0;
 byte AutoSet = 0;
+
 boolean Time_condition = false;
 boolean T_condition = true;
 boolean H_condition = true;
+boolean onlyOnceRotate = true;
 
 unsigned int delaySensorValue = 0;
 
-boolean onlyOnceRotate = true;
-
 void setup()
 {
-  // Lamp , Fan //
-  pinMode(lamp, OUTPUT);
-  pinMode(fan, OUTPUT);
-  digitalWrite(lamp, LOW);
-  digitalWrite(fan, LOW);
 
-  // Speaker //
-  pinMode(7, OUTPUT);
-
-  // Buttons //
+  pinMode(lampPin, OUTPUT);
+  // pinMode(fanPin, OUTPUT); // required for digitalWrite
+  pinMode(speakerPin, OUTPUT);
   pinMode(ok, INPUT);
   pinMode(UP, INPUT);
   pinMode(DOWN, INPUT);
+
+  digitalWrite(lampPin, LOW);
+  analogWrite(fanPin, 0);
+  digitalWrite(speakerPin, LOW);
   digitalWrite(ok, HIGH);
   digitalWrite(UP, HIGH);
   digitalWrite(DOWN, HIGH);
@@ -121,15 +133,17 @@ void setup()
   Min = EEPROM.read(minuteAddr);
   Hrs = EEPROM.read(hourAddr);
   Day = EEPROM.read(dayAddr);
-
-  // EEPROM.write(T_thresholdAddr , 0);
-  // EEPROM.write(H_thresholdAddr , 0);
   T_threshold = EEPROM.read(T_thresholdAddr);
   H_threshold = EEPROM.read(H_thresholdAddr);
-
-  // LCD , Servo //
-  servo.attach(A4);
   servoPosition = EEPROM.read(ServoPositionAddr);
+
+  lcd.begin(16, 2);
+  lcd.createChar(0, TempIcon);
+  lcd.createChar(1, HumidityIcon);
+  dht.begin();
+  servo.attach(A4);
+  Serial.begin(9600);
+
   while (servoPosition > 0)
   {
     servo.write(servoPosition); // until 1 degree
@@ -139,31 +153,24 @@ void setup()
   servo.write(servoPosition); // set servo to 0 degree
   EEPROM.write(ServoPositionAddr, servoPosition);
 
-  lcd.begin(16, 2);
-  Serial.begin(9600);
-
   lcd.clear();
-  lcd.setCursor(0, 0);
   lcd.print("Incubator");
   Serial.println("> Temperature and Humidity Controller For Incubator <");
   delay(1000);
-
   lcd.clear();
-  lcd.setCursor(0, 0);
   lcd.print("Calibrating");
   lcd.setCursor(0, 1);
   lcd.print("sensor...");
   Serial.println("Calibrating sensors...");
 
-  dht.begin();
   // calibration
   for (index = 0; index < probe; index = index + 1)
   {
     readSensors();
     delay(700);
   }
+
   lcd.clear();
-  lcd.setCursor(0, 0);
   lcd.print("Ready");
   Serial.println("Ready");
   index = 0;
@@ -180,7 +187,6 @@ void loop()
   timeRunning = millis();
 
   readSensors();
-
   index = index + 1;
   if (index > probe - 1)
   {
@@ -222,15 +228,17 @@ void loop()
 
   // if (ack == 0)
   //{
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("T:");
+
+  lcd.home();
+  lcd.write((byte)0);
   lcd.print(baselineTemp);
-  lcd.setCursor(4, 0);
+  lcd.setCursor(5, 0);
   lcd.print(" ");
   lcd.print(T_threshold);
-  lcd.setCursor(7, 0);
-  lcd.print("  H:");
+
+  lcd.setCursor(8, 0);
+  lcd.print("  ");
+  lcd.write((byte)1);
   lcd.print(baselineHum);
   lcd.setCursor(13, 0);
   lcd.print(" ");
@@ -245,24 +253,26 @@ void loop()
   lcd.print("m:");
   lcd.print(Min);
 
-  if (baselineHum >= H_threshold)
+  if (baselineHum > H_threshold)
   {
     delaySensorValue = millis() - timeRunning;
     delaySensorValue = 500 - delaySensorValue;
     delay(delaySensorValue);
 
-    if ((baselineHum == H_threshold))
-    {
-      lcd.setCursor(13, 0);
-      lcd.print("=");
-    }
-    else if ((baselineHum > H_threshold))
-    {
-      lcd.setCursor(13, 0);
-      lcd.print(">");
-    }
+    lcd.setCursor(13, 0);
+    lcd.print(">");
+    analogWrite(fanPin, 255);
+    // digitalWrite(fanPin, HIGH);
+  }
+  else if (baselineHum == H_threshold)
+  {
+    delaySensorValue = millis() - timeRunning;
+    delaySensorValue = 500 - delaySensorValue;
+    delay(delaySensorValue);
 
-    digitalWrite(fan, HIGH);
+    analogWrite(fanPin, 255);
+    lcd.setCursor(13, 0);
+    lcd.print("=");
   }
   else
   {
@@ -270,31 +280,23 @@ void loop()
     delaySensorValue = 500 - delaySensorValue;
     delay(delaySensorValue);
 
+    analogWrite(fanPin, 0);
     lcd.setCursor(13, 0);
     lcd.print("<");
-    digitalWrite(fan, LOW);
+    // digitalWrite(fanPin, LOW);
   }
 
-  if (baselineTemp >= T_threshold)
+  if (baselineTemp > T_threshold)
   {
-    if ((baselineTemp == T_threshold))
-    {
-      lcd.setCursor(4, 0);
-      lcd.print("=");
-    }
-    else if ((baselineTemp > T_threshold))
-    {
-      lcd.setCursor(4, 0);
-      lcd.print(">");
-    }
+    lcd.setCursor(5, 0);
+    lcd.print(">");
     delay(500);
     while (baselineTemp - T_threshold > 5)
     {
       lcd.clear();
-      lcd.setCursor(0, 0);
       lcd.print("Temp is High!!!");
-      digitalWrite(lamp, LOW);
-      digitalWrite(fan, HIGH);
+      digitalWrite(lampPin, LOW);
+      analogWrite(fanPin, 255);
       for (int x = 0; x < 180; x++)
       {
         // convert degrees to radians then obtain sin value
@@ -304,28 +306,34 @@ void loop()
         tone(7, toneVal);
         delay(2);
       }
+      goToSetStatus();
+      delay(640);
       readSensors();
+      lcd.clear();
     }
     noTone(7);
-    if (baselineHum < H_threshold)
-    {
-      digitalWrite(fan, LOW);
-    }
-    if (digitalRead(lamp) == HIGH)
-    {
-      // baraye inke yek meghdar lamp ro hanooz roshan negah dare ta bishtar garm beshe mohit.
-      delay(5000);
-    }
-    digitalWrite(lamp, LOW);
+    //      if ( digitalRead(lampPin) == HIGH )
+    //      {
+    //        // baraye inke yek meghdar lampPin ro hanooz roshan negah dare ta bishtar garm beshe mohit.
+    //        delay(5000);
+    //      }
+    digitalWrite(lampPin, LOW);
     delay(2000);
+  }
+  else if ((baselineTemp == T_threshold))
+  {
+    lcd.setCursor(5, 0);
+    lcd.print("=");
+    delay(500);
+    digitalWrite(lampPin, LOW);
   }
   else
   {
-    lcd.setCursor(4, 0);
+    lcd.setCursor(5, 0);
     lcd.print("<");
     delay(500);
 
-    digitalWrite(lamp, HIGH);
+    digitalWrite(lampPin, HIGH);
   }
   // Servo //
   if (Hrs == 0 || Hrs == 1 || Hrs == 2 || Hrs == 3 ||
@@ -413,18 +421,20 @@ void loop()
     EEPROM.write(hourAddr, Hrs);
     EEPROM.write(dayAddr, Day);
   }
+
+  lcd.clear();
+
   //}
   //  else if (ack == 1)
   //  {
   //    lcd.clear();
-  //    lcd.setCursor(0, 0);
   //    lcd.print("No Sensor data.");
   //    lcd.setCursor(0, 1);
   //    lcd.print("System Halted.");
-  //    digitalWrite(lamp, LOW);
-  //    digitalWrite(fan, LOW);
+  //    digitalWrite(lampPin, LOW);
+  //    //digitalWrite(fanPin, LOW);
+  //    analogWrite(fanPin,0);
   //  }
-  Serial.println(millis() - timeRunning);
 }
 
 void setTime()
@@ -432,7 +442,6 @@ void setTime()
   if (timeStatus == 1)
   {
     lcd.clear();
-    lcd.setCursor(0, 0);
     lcd.print("setTime");
     lcd.setCursor(8, 0);
     lcd.print(">");
@@ -658,6 +667,7 @@ void setTime()
       }
     }
   }
+  lcd.clear();
 }
 
 void setTempratureAndHumidity()
@@ -665,7 +675,6 @@ void setTempratureAndHumidity()
   if (SET == 1)
   {
     lcd.clear();
-    lcd.setCursor(0, 0);
     lcd.print("Set Temperature:");
     lcd.setCursor(0, 1);
     lcd.print(T_threshold);
@@ -719,7 +728,6 @@ void setTempratureAndHumidity()
     }
 
     lcd.clear();
-    lcd.setCursor(0, 0);
     lcd.print("Set Humidity:");
     lcd.setCursor(0, 1);
     lcd.print(H_threshold);
@@ -773,6 +781,7 @@ void setTempratureAndHumidity()
     SET = 0;
     Serial.println("\nStart");
   }
+  lcd.clear();
 }
 void goToSetStatus()
 {
