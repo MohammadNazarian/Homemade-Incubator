@@ -2,7 +2,6 @@
 #include <EEPROM.h>
 #include <LiquidCrystal.h>
 #include <Servo.h>
-// New
 #include <DHT.h>
 
 void setTime();
@@ -11,11 +10,10 @@ void goToSetStatus();
 void readSensors();
 int average(int *array, int len);
 
-// New
 #define DHT11_PIN 4
 #define DHTTYPE DHT11
 DHT dht(DHT11_PIN, DHTTYPE);
-// New
+
 const byte probe = 3; // reading probes
 // globals
 int index = 0;
@@ -24,7 +22,6 @@ int baselineHum;
 int tempArr[probe];
 int humArr[probe];
 
-// New
 void readSensors()
 {
   // DHT reading
@@ -71,6 +68,10 @@ const int ok = A1;
 const int UP = A2;
 const int DOWN = A3;
 
+// Speaker //
+float sinVal;
+int toneVal;
+
 // Time //
 byte Sec = 0;
 byte Min = 0;
@@ -104,6 +105,9 @@ void setup()
   pinMode(fan, OUTPUT);
   digitalWrite(lamp, LOW);
   digitalWrite(fan, LOW);
+
+  // Speaker //
+  pinMode(7, OUTPUT);
 
   // Buttons //
   pinMode(ok, INPUT);
@@ -144,7 +148,6 @@ void setup()
   Serial.println("> Temperature and Humidity Controller For Incubator <");
   delay(1000);
 
-  // New
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Calibrating");
@@ -175,7 +178,7 @@ void loop()
   goToSetStatus();
 
   timeRunning = millis();
-  // New
+
   readSensors();
 
   index = index + 1;
@@ -209,10 +212,10 @@ void loop()
 
   // DISPLAY DATA in Serial Monitor
   Serial.print("DHT11, \t");
-  // New
+
   Serial.print(baselineTemp, 1);
   Serial.print(",\t");
-  // New
+
   Serial.print(baselineHum, 1);
   Serial.print(",\t");
   Serial.println(millis());
@@ -222,20 +225,16 @@ void loop()
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("T:");
-  // New
   lcd.print(baselineTemp);
   lcd.setCursor(4, 0);
   lcd.print(" ");
   lcd.print(T_threshold);
-
   lcd.setCursor(7, 0);
   lcd.print("  H:");
-  // New
   lcd.print(baselineHum);
   lcd.setCursor(13, 0);
   lcd.print(" ");
   lcd.print(H_threshold);
-
   lcd.setCursor(1, 1);
   lcd.print("d:");
   lcd.print(Day);
@@ -246,7 +245,6 @@ void loop()
   lcd.print("m:");
   lcd.print(Min);
 
-  // New
   if (baselineHum >= H_threshold)
   {
     delaySensorValue = millis() - timeRunning;
@@ -276,7 +274,7 @@ void loop()
     lcd.print("<");
     digitalWrite(fan, LOW);
   }
-  // New
+
   if (baselineTemp >= T_threshold)
   {
     if ((baselineTemp == T_threshold))
@@ -290,6 +288,29 @@ void loop()
       lcd.print(">");
     }
     delay(500);
+    while (baselineTemp - T_threshold > 5)
+    {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Temp is High!!!");
+      digitalWrite(lamp, LOW);
+      digitalWrite(fan, HIGH);
+      for (int x = 0; x < 180; x++)
+      {
+        // convert degrees to radians then obtain sin value
+        sinVal = (sin(x * (3.1412 / 180)));
+        // generate a frequency from the sin value
+        toneVal = 2000 + (int(sinVal * 1000));
+        tone(7, toneVal);
+        delay(2);
+      }
+      readSensors();
+    }
+    noTone(7);
+    if (baselineHum < H_threshold)
+    {
+      digitalWrite(fan, LOW);
+    }
     if (digitalRead(lamp) == HIGH)
     {
       // baraye inke yek meghdar lamp ro hanooz roshan negah dare ta bishtar garm beshe mohit.
