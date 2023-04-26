@@ -3,14 +3,15 @@
 #include <LiquidCrystal.h>
 #include <Servo.h>
 
+// TODO: tanzim daghigh zaman ,, yek meghdaresh baraye charkheshe motore.
+
 dht DHTSensor;
 #define DHT11_PIN 4
-// #define DHTTYPE DHT11
 
 // Servo //
 Servo motor;
 //  Motor Position //
-int motorPosition = 0;
+int motorPosition = 45;
 
 int Direction = 0;
 
@@ -25,6 +26,7 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 // Lamp , fan //
 const int bulb = 3;
+
 const int fan = 6;
 
 // Buttons //
@@ -35,16 +37,18 @@ const int DOWN = A3;
 int ack = 0;
 
 // Time //
-int sec = 0;
-int Min = 0;
-int hrs = 0;
+int Sec = 0;
+int Min = 59;
+int Hrs = 3;
+int Day = 0;
 
 // Initial Value for Tempurature and Humidity //
-int T_threshold = 30;
-int H_threshold = 60;
+int T_threshold = 38;
+int H_threshold = 45;
 
 // for Status //
 int SET = 0;
+int AutoSet = 0;
 
 boolean T_condition = true;
 boolean H_condition = true;
@@ -68,7 +72,14 @@ void setup()
 
     // LCD , Servo //
     motor.attach(A4);
+
     motor.write(motorPosition);
+    for (; motorPosition >= 0; motorPosition -= 1)
+    {
+        motor.write(motorPosition);
+        delay(20);
+    }
+
     lcd.begin(16, 2);
     Serial.begin(9600);
 
@@ -77,13 +88,13 @@ void setup()
     lcd.print("Temperature &");
     lcd.setCursor(0, 1);
     lcd.print("Humidity ");
-    delay(1500);
+    delay(1000);
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Controller For");
     lcd.setCursor(0, 1);
     lcd.print("Incubator");
-    delay(1500);
+    delay(1000);
     lcd.clear();
     Serial.println("  Temperature and Humidity Controller For Incubator");
 }
@@ -100,25 +111,39 @@ void loop()
 
         while (T_condition)
         {
-            if (digitalRead(UP) == LOW)
+            delay(200);
+
+            if (digitalRead(UP) == LOW) // Pressed
             {
                 T_threshold = T_threshold + 1;
                 lcd.setCursor(0, 1);
                 lcd.print(T_threshold);
                 lcd.print(" *C");
-                delay(200);
+                AutoSet = 0;
+                // delay(300);
             }
-            if (digitalRead(DOWN) == LOW)
+            if (digitalRead(DOWN) == LOW) // Pressed
             {
                 T_threshold = T_threshold - 1;
                 lcd.setCursor(0, 1);
                 lcd.print(T_threshold);
                 lcd.print(" *C");
-                delay(200);
+                AutoSet = 0;
+                // delay(300);
             }
-            if (digitalRead(ok) == LOW)
+            if (digitalRead(ok) == LOW) // Pressed
             {
-                delay(200);
+                AutoSet = 0;
+                delay(300);
+                T_condition = false;
+            }
+
+            if (digitalRead(UP) == HIGH && digitalRead(DOWN) == HIGH && digitalRead(ok) == HIGH) // Pressed
+            {
+                AutoSet = AutoSet + 1;
+            }
+            if (AutoSet == 50) // Auto Set in 15 Second ( 15000 ms)
+            {
                 T_condition = false;
             }
         }
@@ -129,17 +154,21 @@ void loop()
         lcd.setCursor(0, 1);
         lcd.print(H_threshold);
         lcd.print("%");
-        delay(100);
+        delay(200);
 
         while (H_condition)
         {
+
+            delay(200);
+
             if (digitalRead(UP) == LOW)
             {
                 H_threshold = H_threshold + 1;
                 lcd.setCursor(0, 1);
                 lcd.print(H_threshold);
                 lcd.print("%");
-                delay(100);
+                AutoSet = 0;
+                // delay(300);
             }
             if (digitalRead(DOWN) == LOW)
             {
@@ -147,123 +176,228 @@ void loop()
                 lcd.setCursor(0, 1);
                 lcd.print(H_threshold);
                 lcd.print("%");
-                delay(200);
+                AutoSet = 0;
+                // delay(300);
             }
             if (digitalRead(ok) == LOW)
             {
-                delay(100);
+                AutoSet = 0;
+                delay(300);
+                H_condition = false;
+            }
+
+            if (digitalRead(UP) == HIGH && digitalRead(DOWN) == HIGH && digitalRead(ok) == HIGH) // Pressed
+            {
+                AutoSet = AutoSet + 1;
+            }
+            if (AutoSet == 75) // Auto Set in 15 Second ( 15000 ms)
+            {
                 H_condition = false;
             }
         }
         SET = 1;
     }
-    ack = 0;
-    int chk = DHTSensor.read11(DHT11_PIN); // READ DATA
 
-    // Check DHTSensor //
+    if (digitalRead(ok) == LOW)
+    {
+        SET = 0;
+        T_condition = true;
+        H_condition = true;
+        return;
+    }
+
+    int chk = DHTSensor.read11(DHT11_PIN); // READ DATA
+                                           // Check DHTSensor //
     switch (chk)
     {
     case DHTLIB_OK:
         Serial.print("Sensor : OK,\t");
+        ack = 0;
         break;
     case DHTLIB_ERROR_CHECKSUM:
         Serial.print("Sensor : Checksum error,\t");
-        ack = 0;
+        ack = 1;
+        delay(200);
         break;
     case DHTLIB_ERROR_TIMEOUT:
         Serial.print("Sensor : Time out error,\t");
-        ack = 0;
+        ack = 1;
+        delay(200);
         break;
     default:
         Serial.print("Sensor : Unknown error,\t");
+        ack = 1;
+        delay(200);
         break;
     }
-    // DISPLAT DATA
+
+    // DISPLAY DATA in Serial Monitor
     Serial.print("DHT11, \t");
     Serial.print(DHTSensor.temperature, 1);
     Serial.print(",\t");
     Serial.println(DHTSensor.humidity, 1);
-    delay(100);
 
     if (ack == 0)
     {
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("Temp:");
+        lcd.print("T:");
         lcd.print(DHTSensor.temperature);
-        lcd.setCursor(0, 1);
-        lcd.print("Humidity:");
-        lcd.print(DHTSensor.humidity);
-        delay(500);
+        lcd.setCursor(4, 0);
+        lcd.print(" ");
+        lcd.print(T_threshold);
 
-        // temperature and humidity is high //
+        lcd.setCursor(7, 0);
+        lcd.print("  H:");
+        lcd.print(DHTSensor.humidity);
+        lcd.setCursor(13, 0);
+        lcd.print(" ");
+        lcd.print(H_threshold);
+
+        lcd.setCursor(0, 1);
+        lcd.print("d:");
+        lcd.print(Day);
+        lcd.setCursor(4, 1);
+        lcd.print("h:");
+        lcd.print(Hrs);
+        lcd.setCursor(8, 1);
+        lcd.print("m:");
+        lcd.print(Min);
+        lcd.setCursor(12, 1);
+        lcd.print("s:");
+        lcd.print(Sec);
+
         if (DHTSensor.temperature >= T_threshold)
         {
             delay(500);
+
             if (DHTSensor.temperature >= T_threshold)
             {
+                if ((DHTSensor.temperature == T_threshold))
+                {
+                    lcd.setCursor(4, 0);
+                    lcd.print("=");
+                }
+                else if ((DHTSensor.temperature > T_threshold))
+                {
+                    lcd.setCursor(4, 0);
+                    lcd.print(">");
+                }
+                if (digitalRead(bulb) == HIGH)
+                {
+                    delay(10000); // Actualy delay ~ 10 second
+                    Sec = Sec + 10;
+                    lcd.setCursor(14, 1);
+                    lcd.print(Sec);
+                    // baraye inke yek meghdar lamp ro hanooz roshan negah dare ta bishtar garm beshe mohit.
+                }
                 digitalWrite(bulb, LOW);
+                delay(4000); // Actualy delay ~ 5 second
+                Sec = Sec + 4;
             }
         }
-        if (DHTSensor.humidity >= H_threshold)
+        else
         {
             delay(500);
-            if (DHTSensor.humidity >= H_threshold)
+            lcd.setCursor(4, 0);
+            lcd.print("<");
+            if (DHTSensor.humidity < H_threshold)
             {
-                digitalWrite(fan, HIGH);
+                lcd.setCursor(13, 0);
+                lcd.print("<");
             }
-        }
-
-        // temperature and humidity is low //
-
-        if (DHTSensor.temperature < T_threshold)
-        {
-            delay(500);
             if (DHTSensor.temperature < T_threshold)
             {
                 digitalWrite(bulb, HIGH);
             }
         }
-        if (DHTSensor.humidity < H_threshold)
+
+        if (DHTSensor.humidity >= H_threshold)
         {
-            delay(500);
+            delay(460);
+            if (DHTSensor.humidity >= H_threshold)
+            {
+                if ((DHTSensor.humidity == H_threshold))
+                {
+                    lcd.setCursor(13, 0);
+                    lcd.print("=");
+                }
+                else if ((DHTSensor.humidity > H_threshold))
+                {
+                    lcd.setCursor(13, 0);
+                    lcd.print(">");
+                }
+                digitalWrite(fan, HIGH);
+            }
+        }
+        else
+        {
+            lcd.setCursor(13, 0);
+            lcd.print("<");
+            delay(460);
             if (DHTSensor.humidity < H_threshold)
             {
                 digitalWrite(fan, LOW);
             }
         }
-        sec = sec + 1;
-        if (sec == 3)
+
+        // CAUTION
+        Serial.print(millis());
+        Sec = Sec + 1;
+        if (Sec >= 60)
         {
-            sec = 0;
-            Min = Min + 1;
-        }
-        if (Min == 3)
-        {
-            Min = 0;
-            hrs = hrs + 1;
-        }
-        if (hrs == 3 && Min == 0 && sec == 0)
-        {
-            Serial.println("  ROTATING FORWARD  ");
-            for (motorPosition = 0; motorPosition <= 180; motorPosition += 1)
+            if (Sec % 60 == 0) // if Sec == 60 or 120 or 180
             {
-                motor.write(motorPosition);
-                delay(25);
+                Sec = 0;
+                Min = Min + 1;
+            }
+            else
+            {
+                while (Sec > 60)
+                {
+                    Sec = Sec - 60;
+                    Min = Min + 1;
+                }
             }
         }
-        if (hrs == 6 && Min == 0 && sec == 0)
+        if (Min == 60)
         {
-            Serial.println("  ROTATING BACKWARD  ");
-            hrs = 0;
-            for (motorPosition = 180; motorPosition >= 0; motorPosition -= 1)
+            Min = 0;
+            Hrs = Hrs + 1;
+        }
+        if (Hrs == 24)
+        {
+            Hrs = 0;
+            Day = Day + 1;
+        }
+
+        if (Hrs % 4 == 0 && Min == 0 && Sec == 0) // not work!
+        {
+            if (motorPosition >= 90)
             {
-                motor.write(motorPosition);
-                delay(25);
+                Serial.println("  ROTATING BACKWARD  ");
+                for (motorPosition = 90; motorPosition >= 0; motorPosition -= 1)
+                {
+                    motor.write(motorPosition);
+                    delay(22);
+                }
+                Sec = Sec + 2; // Compensation for unaccounted time
+            }
+
+            else if (motorPosition < 90) // not Work!!
+            {
+                Serial.println("  ROTATING FORWARD  ");
+                for (motorPosition = 0; motorPosition <= 90; motorPosition += 1)
+                {
+                    motor.write(motorPosition);
+                    delay(20);
+                }
+                // TODO : Caution
+                Sec = Sec + 2; // Compensation for unaccounted time
             }
         }
     }
-    if (ack == 1)
+    else if (ack == 1)
     {
         lcd.clear();
         lcd.setCursor(0, 0);
@@ -273,5 +407,4 @@ void loop()
         digitalWrite(bulb, LOW);
         digitalWrite(fan, LOW);
     }
-    delay(500);
 }
