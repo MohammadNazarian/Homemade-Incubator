@@ -93,7 +93,7 @@ bool AHTxx::begin(uint32_t speed, uint32_t stretch)
   Wire.setClock(speed);                                    //experimental! AVR I2C bus speed 31kHz..400kHz, default 100000Hz
 
   #if !defined (__AVR_ATtiny85__)                          //for backwards compatibility with ATtiny Core
-  Wire.setWireTimeout(stretch, false);                     //experimental! default 25000usec, true=Wire hardware will be automatically reset to default on timeout
+  //Wire.setWireTimeout(stretch, false);                     //experimental! default 25000usec, true=Wire hardware will be automatically reset to default on timeout
   #endif
 
 #elif defined (ESP8266)
