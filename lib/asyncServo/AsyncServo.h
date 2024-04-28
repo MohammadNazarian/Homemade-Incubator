@@ -16,12 +16,10 @@ https://github.com/chrisfraser/asyncServo
 
 #include <Servo.h>
 
-#define ASYNCSERVO_DEBUG 0
-
 class AsyncServoClass
 {
 public:
-	void begin(uint8_t pin, short maxIncrementDegrees = 2, short incrementDelay = 20, int defaultPosition = 90);
+	void begin(uint8_t pin, short servoStep = 2, short incrementDelay = 20, int defaultPosition = 90);
 	uint8_t getPosition();
 	
 	bool isRunning();
@@ -29,15 +27,12 @@ public:
 	// To be called in loop function
 	void update();
 
-	uint8_t goTo(uint8_t position, short maxIncrementDegrees = 2, short incrementDelay = 20);
+	uint8_t goTo(uint8_t position);
 
 	void play();
 	void loop(int delayMillis = 100);
 	void pause(int delayMillis = -1);
 	void stop();
-
-	void add(uint8_t step);
-	void clear();
 
 private:
 	Servo _base;
@@ -45,17 +40,12 @@ private:
 	bool _loop;
 	int _loopDelay;
 
-	short _steps[25];
-
 	// Variables used to determine increments between steps and speed of movement
 	// Decreasing _incrementDelay increases servo speed
 	short _maxIncrementDegrees, _incrementDelay;
 
 	unsigned long _nextUpdateMillis = 0;
 	unsigned long _unpauseMillis = 0;
-
-	short _writeIndex;
-	short _readIndex = -1;
 
 	short _currentIncrement;
 	short _totalIncrements = -1;

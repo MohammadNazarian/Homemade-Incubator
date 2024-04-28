@@ -3,6 +3,8 @@ AsyncServo
 by Chris Fraser <http://blog.chrosfraser.co.za>
 
 https://github.com/chrisfraser/asyncServo
+
+changed by me ;)
 */
 
 #if defined(ARDUINO) && ARDUINO >= 100
@@ -13,11 +15,10 @@ https://github.com/chrisfraser/asyncServo
 
 #include "asyncServo.h"
 
-void AsyncServoClass::begin(uint8_t pin, short maxIncrementDegrees, short incrementDelay , int defaultPosition = 90)
+void AsyncServoClass::begin(uint8_t pin, short servoStep, short incrementDelay , int defaultPosition = 90)
 {
-	_maxIncrementDegrees = maxIncrementDegrees;
+	_maxIncrementDegrees = servoStep;
 	_incrementDelay = incrementDelay;
-	_writeIndex = -1;
 	_base.attach(pin);
 	_base.write(defaultPosition);
 }
@@ -41,12 +42,8 @@ void AsyncServoClass::update()
 	// Check for unpause
 	if (_unpauseMillis > 0 && currentMillis >= _unpauseMillis)
 	{
-#if (ASYNCSERVO_DEBUG == 1)
-		Serial.println("-----------------------");
-		Serial.println("Un-paused");
-		Serial.println("-----------------------");
-#endif
 		_unpauseMillis = 0;
+		_previousStep = getPosition();
 		play();
 	}
 
@@ -54,24 +51,8 @@ void AsyncServoClass::update()
 	{
 		if (_running)
 		{
-			// Start
-			if (_readIndex == -1)
-			{
-#if (ASYNCSERVO_DEBUG == 1)
-				Serial.println("-----------------------");
-				Serial.println("Play start");
-				Serial.println("-----------------------");
-#endif
-				// Get the current position of the servo and set that to the previous step
-				_previousStep = getPosition();
-
-				// Set read index tot he begining of the steps array
-				_readIndex = 0;
-
-				// Get the current step at readIndex
-				_currentStep = _steps[_readIndex];
-			}
-
+			//_previousStep = getPosition();
+			//_currentStep = _steps[_readIndex];
 
 			// Calculate increments to complete step if not already calculated
 			if (_totalIncrements == -1)
@@ -82,17 +63,6 @@ void AsyncServoClass::update()
 
 			move(_previousStep,_currentStep);
 
-#if (ASYNCSERVO_DEBUG == 1)
-			Serial.print("Moved: ");
-			Serial.print(_previousStep);
-			Serial.print("-->");
-			Serial.print(_currentStep);
-			Serial.print(" inc ");
-			Serial.print(_currentIncrement);
-			Serial.print("/");
-			Serial.println(_totalIncrements);
-#endif
-
 			// Check if the increments and hence step are complete
 			if (_currentIncrement == _totalIncrements)
 			{
@@ -100,46 +70,23 @@ void AsyncServoClass::update()
 				_currentIncrement = -1;
 				_totalIncrements = -1;
 
-				// Proceed to next step
-				_readIndex++;
-
-				// Check if we have finished the steps
-				if (_readIndex > _writeIndex)
+				// If looping then reset and pause for loop delay
+				if (_loop == true)
 				{
-					// If looping then reset and pause for loop delay
-					if (_loop == true)
-					{
-						reset();
-						pause(_loopDelay);
-					}
-					else
-					{
-						stop();
-#if (ASYNCSERVO_DEBUG == 1)
-						Serial.println("-----------------------");
-						Serial.println("Done!");
-						Serial.println("-----------------------");
-#endif
-					}
+					reset();
+					pause(_loopDelay);
 				}
+				//Done
 				else
 				{
-					_previousStep = _currentStep;
-					_currentStep = _steps[_readIndex];
-
-#if (ASYNCSERVO_DEBUG == 1)
-					Serial.println("-----------------------");
-					Serial.print("Next Step: ");
-					Serial.println(_readIndex);
-					Serial.println("-----------------------");
-#endif
+					stop();
 				}
 			}
 			else
 			{
 				// Increment _currentIncrement for the next update
 				_currentIncrement++;
-			}
+			}			
 		}
 
 		// Update the update Timer by _incrementDelay
@@ -147,17 +94,20 @@ void AsyncServoClass::update()
 	}
 }
 
-uint8_t AsyncServoClass::goTo(uint8_t position, short maxIncrementDegrees, short incrementDelay)
+uint8_t AsyncServoClass::goTo(uint8_t position)
 {
-	if(!_running)
+	if(!isRunning())
 	{
 		_previousStep = getPosition();
 		_currentStep = position;
-		_readIndex = _writeIndex;
 		_totalIncrements = getIncrements(_previousStep, _currentStep);
 		_currentIncrement = 1;
 		_loop = false;
 		play();
+	}
+	else
+	{
+		Serial.println("isRunning AsyncServo");
 	}
 }
 
@@ -193,17 +143,6 @@ void AsyncServoClass::pause(int delayMillis)
 	}
 }
 
-// Add a step to the array of steps
-void AsyncServoClass::add(uint8_t step)
-{
-	_steps[_writeIndex++] = step;
-}
-
-// Clear steps
-void AsyncServoClass::clear()
-{
-	_writeIndex = 0;
-}
 
 // ------------------------------------------------------------------------
 // Private
@@ -240,7 +179,6 @@ void AsyncServoClass::move(uint8_t previousStep, uint8_t currentStep)
 // Reset counters
 void AsyncServoClass::reset()
 {
-	_readIndex = -1;
 	_totalIncrements = -1;
 	_nextUpdateMillis = 0;
 	_unpauseMillis = 0;
