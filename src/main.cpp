@@ -23,7 +23,7 @@ Quail:
   جوجه که به دنیا اومد، تا دو سه روز دمای ۳۶ تا ۳۷ درجه (مثل دمای هچر) نگه میداریم و در هفته اول دمای ۳۴ درجه رو حفظ کنیم براشون
 */
 
-#define __DEBUG__ true
+#define __DEBUG__ false
 #define __REPORT__ false
 
 // Tasks
@@ -136,6 +136,7 @@ RTC_DS1307 rtc;
 int year = 1401; // for EEPROM.get()
 TimeSpan timeElapsedHloder;
 DateConvL dateC;
+byte previousDay = 0;
 
 // LCD (I2C)
 // LiquidCrystal lcd(rs, en, d4, d5, d6, d7, backlightLCD, HIGH);
@@ -145,6 +146,7 @@ byte TempIcon[8] = {B01110, B01010, B01010, B01110, B01110, B11111, B11111, B011
 byte HumidityIcon[8] = {B00100, B00100, B01110, B01110, B11111, B11111, B11111, B01110};
 byte degreeIcon[8] = {B11000, B11000, B00000, B00000, B00000, B00000, B00000, B00000};
 int lcdShowStatus = 0;
+bool changedLcdShowStatus = false;
 int backlightCounter;
 int lcdBacklightTimer = 30;
 
@@ -164,10 +166,9 @@ byte baselineHum = 70;
 
 void setup()
 {
-// Serial
-#if __DEBUG__ || __REPORT__
+  // Serial
   Serial.begin(9600);
-#endif
+  Serial.println(" ");
   delay(20);
   serialPrintln(F("> Temperature and Humidity Controller For Incubator <"));
 
@@ -256,8 +257,9 @@ void setup()
     timeElapsedHloder = rtc.now() - savedTimeStart;
   }
 
-  sensorTask.enable();
+  changedLcdShowStatus = true;
   lcdShowTask.enable();
+  sensorTask.enable();
   lcdBacklightTask.enable();
   servoMotorTask.enable();
 }
@@ -302,7 +304,7 @@ void rotaryEncoderState()
   if (currentStateCLK != lastStateCLK) // for change status
   {
     lcdBacklightTask.enableIfNot();
-
+    changedLcdShowStatus = true;;
     if (digitalRead(PinRotaryEncoderDT) == currentStateCLK) // Counter Clockwise rotate
     {
 
@@ -778,6 +780,7 @@ void setTime(bool isSetTimeElapsed)
       lastButtonPress = millis();
     }
   }
+  changedLcdShowStatus = true;
   lcdShowTask.enable();
   servoMotorTask.enable();
 }
@@ -973,6 +976,7 @@ void setTempratureAndHumidity(double t_threshold, byte h_threshold)
 
   initializeServo = true;
   sensorTask.enable();
+  changedLcdShowStatus = true;
   lcdShowTask.enable();
 }
 void selectMode()
@@ -1152,6 +1156,7 @@ void selectMode()
       lastButtonPress = millis();
     }
   }
+  changedLcdShowStatus = true;
   lcdShowTask.enable();
 }
 void menu()
@@ -1363,6 +1368,7 @@ void menu()
         }
         delay(300);
         lastButtonPress = millis();
+        changedLcdShowStatus = true;
         lcdShowTask.enable();
         lcdBacklightTask.enable();
         break;
@@ -1382,6 +1388,7 @@ void menu()
       autoSetCounter = millis();
       lcd.clear();
       delay(300);
+      changedLcdShowStatus = true;
       lcdShowTask.enable();
       lcdBacklightTask.enable();
       break;
@@ -1497,6 +1504,7 @@ void setBacklight()
       break;
     }
   }
+  changedLcdShowStatus = true;
   lcdShowTask.enable();
 }
 
@@ -1657,6 +1665,8 @@ void setRotateMode()
       lastButtonPress = millis();
     }
   }
+  
+  changedLcdShowStatus = true;
   lcdShowTask.enable();
   initializeServo = true;
 }
@@ -1672,25 +1682,31 @@ void lcdShow() // delay 53 millisecond
     {
       if (baselineTemp < T_MaximumDanger || mode == 1)
       {
-        lcd.clear();
-        lcd.write((byte)0);
-        lcd.print(" ");
+        if(changedLcdShowStatus)
+        {
+          changedLcdShowStatus = false;
+          lcd.clear();
+
+          lcd.setCursor(0, 0);
+          lcd.write((byte)0);
+          lcd.setCursor(15, 0);
+          lcd.write((byte)2);
+
+          lcd.setCursor(0, 1);
+          lcd.write((byte)1);
+          lcd.setCursor(15, 1);
+          lcd.print("%");
+        }
+        
+        lcd.setCursor(2, 0);
         lcd.print(baselineTemp);
-        lcd.print("  ");
-        lcd.setCursor(8, 0);
-        lcd.print("  ");
+        lcd.setCursor(9, 0);
         lcd.print(T_threshold);
-        lcd.setCursor(15, 0);
-        lcd.write((byte)2);
-        lcd.setCursor(0, 1);
-        lcd.write((byte)1);
-        lcd.print("    ");
+
+        lcd.setCursor(5, 1);
         lcd.print(baselineHum);
-        lcd.setCursor(8, 1);
-        lcd.print("  ");
+        lcd.setCursor(10, 1);
         lcd.print(H_threshold);
-        lcd.setCursor(15, 1);
-        lcd.print("%");
 
         if (baselineTemp < T_threshold)
         {
@@ -1737,11 +1753,29 @@ void lcdShow() // delay 53 millisecond
     {
       DateTime now = rtc.now();
       dateC.ToShamsi(now.year(), now.month(), now.day()); // converts global values of date and stores them to dateC
+      if(changedLcdShowStatus)
+      {
+        changedLcdShowStatus = false;
+        previousDay = now.day();
+        lcd.clear();
+        lcd.print("Date: ");
 
-      lcd.clear();
-      lcd.print(String(dateC.global_year) + "/" + String(dateC.global_month) + "/" + String(dateC.global_day));
-      lcd.setCursor(0, 1);
-      lcd.print(String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second()));
+        lcd.setCursor(0,1);
+        lcd.print("Time: ");
+
+        lcd.setCursor(6, 0);
+        lcd.print(String(dateC.global_year,DEC) + "/" + String(dateC.global_month,DEC) + "/" + String(dateC.global_day,DEC));
+      }
+      
+      if(now.day() != previousDay)
+      {
+        previousDay = now.day();
+        lcd.setCursor(6, 0);
+        lcd.print(String(dateC.global_year,DEC) + "/" + String(dateC.global_month,DEC) + "/" + String(dateC.global_day,DEC));
+      }
+
+      lcd.setCursor(6, 1);
+      lcd.print(String(now.hour(),DEC) + ":" + String(now.minute(),DEC) + ":" + String(now.second(),DEC));
     }
     else if (lcdShowStatus == 2)
     {
@@ -1750,17 +1784,39 @@ void lcdShow() // delay 53 millisecond
       // serialPrintln("RTC NOW > " +  String(rtc.now().year()) + "/" + String(rtc.now().month()) + "/" + String(rtc.now().day()) + "|| " + String(rtc.now().hour()) + ":" + String(rtc.now().minute()) + ":"+ String(rtc.now().second()));
       // serialPrintln("timeElapsed > days: " + String(timeElapsed.days()) +  " hours: " + String(timeElapsed.hours())  +  " minutes: " + String(timeElapsed.minutes()) +  " seconds: " + String(timeElapsed.seconds()));
 
-      lcd.clear();
-      lcd.print("Day:");
+      if(changedLcdShowStatus)
+      {
+        changedLcdShowStatus = false;
+
+        lcd.clear();
+        lcd.print("Day:");
+        lcd.setCursor(8, 0);
+        lcd.print("Hour:");
+
+        lcd.setCursor(0, 1);
+        lcd.print("Min:");
+
+        lcd.setCursor(9, 1);
+        lcd.print("Sec:");
+      }
+      lcd.setCursor(5, 0);
+      lcd.print(" ");
+      lcd.setCursor(4, 0);
       lcd.print(timeElapsedHloder.days());
-      lcd.setCursor(8, 0);
-      lcd.print("Hour:");
+
+      lcd.setCursor(15, 0);
+      lcd.print(" ");
+      lcd.setCursor(13, 0);
       lcd.print(timeElapsedHloder.hours());
-      lcd.setCursor(0, 1);
-      lcd.print("Min:");
+
+      lcd.setCursor(5, 1);
+      lcd.print(" ");
+      lcd.setCursor(4, 1);
       lcd.print(timeElapsedHloder.minutes());
-      lcd.setCursor(9, 1);
-      lcd.print("Sec:");
+
+      lcd.setCursor(15, 1);
+      lcd.print(" ");
+      lcd.setCursor(13, 1);
       lcd.print(timeElapsedHloder.seconds());
     }
   }
