@@ -7,13 +7,14 @@
 #include <RTClib.h>
 #include <AsyncServo.h>
 #include <DateConvL.h>
+#include <math.h>
 
 /*Tips:
-
 Quail:
+  Maintaining Mode: Temperature:10~17C , Humidity: 30~50~70% , until 4 or 5 days , Turn Eggs every 1 hours
+  Setter Mode: Temperature:37~38C , Humidity: 50~65% , Turn Eggs every 1 hours
+  Hatching Mode: Temperature:37~38C , Humidity: 60~70%
   نحوه قرارگیری تخم ها، نک تیز تخم ها به سمت پایین قرار میگیرد
-  Maintaining Mode: Temperature:10~17C , Humidity: 30~50~70% , until 4 or 5 days , Turn Eggs every 4 hours
-
   فصل مناسب جوجه کشی در بهار است
   پرکردن آب رطوبت رو باید بررسی کنم و الگوشو به دست بیارم
   نطفه سنجی در روز ۸ یا ۱۰ جوجه کشی انجام میشود و بهتره جایی باشه که خیلی محیطش خنک نباشد
@@ -22,8 +23,8 @@ Quail:
   جوجه که به دنیا اومد، تا دو سه روز دمای ۳۶ تا ۳۷ درجه (مثل دمای هچر) نگه میداریم و در هفته اول دمای ۳۴ درجه رو حفظ کنیم براشون
 */
 
-#define __DEBUG__ false
-#define __REPORT__ true
+#define __DEBUG__ true
+#define __REPORT__ false
 
 // Tasks
 void lcdShow();
@@ -39,6 +40,8 @@ void setTempratureAndHumidity(double, byte);
 void setTime(bool);
 void selectMode();
 void setBacklight();
+void setRotateMode();
+void setRotateAngles();
 // Other
 void initializeEEPROM();
 void rotaryEncoderState();
@@ -88,14 +91,13 @@ Task servoMotorTask(1 * TASK_SECOND, TASK_FOREVER, &servoMotor, &scheduler, fals
 // EEPROM
 // Addreses for EEPROM
 byte secondElapsedAddr = 0, minuteElapsedAddr = 1, hourElapsedAddr = 2, dayElapsedAddr = 3, monthElapsedAddr = 4, yearElapsedAddr = 5; // year is int(2 byte)
-byte ServoPositionAddr = 7, modeAddr = 8, H_thresholdAddr = 9, T_thresholdAddr = 10, lcdBacklightTimerAddr = 14;                       // T_thresholdAddr is float(4 byte) , lcdBacklightTimerAddr is int(2 byte)
-
+byte ServoPositionAddr = 7, modeAddr = 8, H_thresholdAddr = 9, T_thresholdAddr = 10, lcdBacklightTimerAddr = 14, turnModeAddr = 16; // T_thresholdAddr is float(4 byte) , lcdBacklightTimerAddr is int(2 byte)
+byte StartServoPositionAddr = 17, EndServoPositionAddr = 18;
 // for Status
 byte timeStatus = 0;
 unsigned long autoSetCounter = 0;
-int autoSetDuration = 10000;
+unsigned long autoSetDuration = 10000;
 byte menuSelection = 0;
-byte modeSelection = 0;
 byte mode = 3; // Mode 1 is Maintaining , Mode 2 is Incubation , Mode 3 is Hatching
 
 // Rotary Encoder
@@ -115,9 +117,15 @@ bool firstRunFanAction = true;
 bool turnOn = true;
 
 // Servo
-// Servo servo;
 AsyncServoClass asyncServo;
-byte servoPosition = 0;
+byte previousServoPosition = 90;
+byte turnMode = 1; // 1 : (normal) Every 1 hour, rotate 90 degree, 2 : (advanced) Short rotations every few minutes
+byte startServoPosition = 45;
+byte middleServoPosition = 90;
+byte endServoPosition = 135;
+bool initializeServo = false;
+byte previousMinuteServo  = 0;
+byte currentMinuteServo  = 0;
 
 // Buzzer
 byte sirenCounter = 0;
@@ -184,9 +192,8 @@ void setup()
   analogWrite(PinFan, TurnOffFan);
 
   // Servo
-  asyncServo.begin(PinServo, 1, 15, servoPosition);
-  asyncServo.add(45);
-  asyncServo.add(135);
+  middleServoPosition = int((startServoPosition + endServoPosition) /2 );
+  asyncServo.begin(PinServo, 1, 20, previousServoPosition);
 
   // Buzzer
   pinMode(PinBuzzer, OUTPUT);
@@ -243,6 +250,11 @@ void setup()
 
   DateTime savedTimeStart(EEPROM.get(yearElapsedAddr, year), EEPROM.read(monthElapsedAddr), EEPROM.read(dayElapsedAddr), EEPROM.read(hourElapsedAddr), EEPROM.read(minuteElapsedAddr), EEPROM.read(secondElapsedAddr));
   timeElapsedHloder = rtc.now() - savedTimeStart;
+  if(timeElapsedHloder.minutes() < 0 || timeElapsedHloder.hours() < 0 || timeElapsedHloder.days() < 0)//If the stored time was cleared(Because of the low battery of the RTC chip)
+  {
+    rtc.adjust(savedTimeStart);
+    timeElapsedHloder = rtc.now() - savedTimeStart;
+  }
 
   sensorTask.enable();
   lcdShowTask.enable();
@@ -672,6 +684,7 @@ void setTime(bool isSetTimeElapsed)
         lcd.clear();
         delay(300);
         dateC.ToGregorian(Year, Month, Day);
+        initializeServo = true;
         if (isSetTimeElapsed)
         {
           EEPROM.write(secondElapsedAddr, Sec);
@@ -737,6 +750,7 @@ void setTime(bool isSetTimeElapsed)
           serialPrint(F("Start"));
           delay(300);
           dateC.ToGregorian(Year, Month, Day);
+          initializeServo = true;
           if (isSetTimeElapsed)
           {
             EEPROM.write(secondElapsedAddr, Sec);
@@ -799,7 +813,7 @@ void setTempratureAndHumidity(double t_threshold, byte h_threshold)
         }
         else
         {
-          T_threshold = 90.0;
+          T_threshold = 50.0;
         }
 
         EEPROM.put(T_thresholdAddr, T_threshold);
@@ -812,7 +826,7 @@ void setTempratureAndHumidity(double t_threshold, byte h_threshold)
 
       else // Counter Clockwise rotate
       {
-        if (T_threshold < 90.0)
+        if (T_threshold < 50.0)
         {
           T_threshold = T_threshold + 0.1;
         }
@@ -956,45 +970,47 @@ void setTempratureAndHumidity(double t_threshold, byte h_threshold)
   H_MaximumDanger = H_threshold + 10;
   T_MinimumDanger = T_threshold - 2;
   H_MinimumDanger = H_threshold - 20;
+
+  initializeServo = true;
   sensorTask.enable();
   lcdShowTask.enable();
 }
 void selectMode()
 {
   lcdShowTask.disable();
-  modeSelection = 1;
+  byte modeSelection = 1;
   switch (mode)
   {
-  case 1:
-    modeSelection = 1;
-    lcd.clear();
-    lcd.print(">1_ Maintaining");
-    lcd.setCursor(0, 1);
-    lcd.print(" 2_ Incubation");
-    break;
-  case 2:
-    modeSelection = 2;
-    lcd.clear();
-    lcd.print(" 1_ Maintaining");
-    lcd.setCursor(0, 1);
-    lcd.print(">2_ Incubation");
-    break;
+    case 1:
+      modeSelection = 1;
+      lcd.clear();
+      lcd.print(">1_ Maintaining");
+      lcd.setCursor(0, 1);
+      lcd.print(" 2_ Incubation");
+      break;
+    case 2:
+      modeSelection = 2;
+      lcd.clear();
+      lcd.print(" 1_ Maintaining");
+      lcd.setCursor(0, 1);
+      lcd.print(">2_ Incubation");
+      break;
 
-  case 3:
-    modeSelection = 3;
-    lcd.clear();
-    lcd.print(" 2_ Incubation");
-    lcd.setCursor(0, 1);
-    lcd.print(">3_ Hatching");
-    break;
+    case 3:
+      modeSelection = 3;
+      lcd.clear();
+      lcd.print(" 2_ Incubation");
+      lcd.setCursor(0, 1);
+      lcd.print(">3_ Hatching");
+      break;
 
-  default:
-    modeSelection = 1;
-    lcd.clear();
-    lcd.print(">1_ Maintaining");
-    lcd.setCursor(0, 1);
-    lcd.print(" 2_ Incubation");
-    break;
+    default:
+      modeSelection = 1;
+      lcd.clear();
+      lcd.print(">1_ Maintaining");
+      lcd.setCursor(0, 1);
+      lcd.print(" 2_ Incubation");
+      break;
   }
 
   while (true)
@@ -1120,6 +1136,8 @@ void selectMode()
         EEPROM.put(yearElapsedAddr, dateTimeNow.year());
 
         EEPROM.update(modeAddr, mode);
+
+        initializeServo = true;
         delay(300);
         lastButtonPress = millis();
         break;
@@ -1144,6 +1162,7 @@ void menu()
   //  lcd.print("set Time");
   //  lcd.print("set TimeElapsed");
   //  lcd.print("set Backlight");
+  //  lcd.print("set Rotate Mode");
   //  lcd.print("Cancel");
 
   lcdShowTask.disable();
@@ -1159,7 +1178,7 @@ void menu()
   lcd.write((byte)0);
   lcd.print(" & ");
   lcd.write((byte)1);
-  serialPrintln(F("Set Mode"));
+  serialPrintln(F("Setting Menu"));
 
   while (menuSelection >= 1)
   {
@@ -1173,9 +1192,9 @@ void menu()
         autoSetCounter = millis();
         if (menuSelection <= 1)
         {
-          menuSelection = 6;
+          menuSelection = 7;
           lcd.clear();
-          lcd.print(" set Backlight");
+          lcd.print(" set Rotate Mode");
           lcd.setCursor(0, 1);
           lcd.print(">Cancel");
         }
@@ -1222,6 +1241,13 @@ void menu()
             lcd.clear();
             lcd.print(">set Backlight");
             lcd.setCursor(0, 1);
+            lcd.print(" set Rotate Mode");
+          }
+          else if (menuSelection == 6)
+          {
+            lcd.clear();
+            lcd.print(">set Rotate Mode");
+            lcd.setCursor(0, 1);
             lcd.print(" Cancel");
           }
         }
@@ -1229,7 +1255,7 @@ void menu()
       else
       {
         autoSetCounter = millis();
-        if (menuSelection >= 6)
+        if (menuSelection >= 7)
         {
           menuSelection = 1;
           lcd.clear();
@@ -1284,6 +1310,13 @@ void menu()
             lcd.clear();
             lcd.print(" set Backlight");
             lcd.setCursor(0, 1);
+            lcd.print(">set Rotate Mode");
+          }
+          else if (menuSelection == 7)
+          {
+            lcd.clear();
+            lcd.print(" set Rotate Mode");
+            lcd.setCursor(0, 1);
             lcd.print(">Cancel");
           }
         }
@@ -1301,27 +1334,30 @@ void menu()
         switch (menuSelection)
         {
         case 1:
-          selectMode();
           serialPrintln(F("Selected set Mode"));
+          selectMode();
           break;
         case 2:
-          setTempratureAndHumidity(T_threshold, H_threshold);
           serialPrintln(F("Selected set Temperature and Humidity"));
-
+          setTempratureAndHumidity(T_threshold, H_threshold);
           break;
         case 3:
-          setTime(false);
           serialPrintln(F("Selected set Time"));
-
+          setTime(false);
           break;
         case 4:
-          setTime(true);
           serialPrintln(F("Selected set Time Elapsed"));
+          setTime(true);
           break;
         case 5:
-          setBacklight();
           serialPrintln(F("Selected set Backlight"));
+          setBacklight();
+          break;
         case 6:
+          serialPrintln(F("Selected set Rotate Mode"));
+          setRotateMode();
+          break;
+        case 7:
           lcd.clear();
           serialPrintln(F("Selected Cancel"));
         }
@@ -1351,6 +1387,8 @@ void menu()
       break;
     }
   }
+  
+  initializeServo = true;
 }
 
 void setBacklight()
@@ -1386,7 +1424,7 @@ void setBacklight()
         autoSetCounter = millis();
 
         if (lcdBacklightTimer < 0)
-          lcdBacklightTimer = 1200;
+          lcdBacklightTimer = 240;
 
         if (lcdBacklightTimer > 0)
         {
@@ -1409,7 +1447,7 @@ void setBacklight()
 
         autoSetCounter = millis();
 
-        if (lcdBacklightTimer > 1200)
+        if (lcdBacklightTimer > 240)
           lcdBacklightTimer = 0;
 
         if (lcdBacklightTimer == 0)
@@ -1419,7 +1457,7 @@ void setBacklight()
           lcd.setCursor(0, 1);
           lcd.print("Always ON");
         }
-        else if (lcdBacklightTimer < 1200)
+        else if (lcdBacklightTimer < 240)
         {
           lcd.clear();
           lcd.print("Backlight ON in");
@@ -1460,6 +1498,167 @@ void setBacklight()
     }
   }
   lcdShowTask.enable();
+}
+
+void setRotateMode()
+{
+  lcdShowTask.disable();
+  byte rotateModeSelection = 1;
+
+  bool selected = false;
+  switch (turnMode)
+  {
+  case 1:
+    rotateModeSelection = 1;
+    lcd.clear();
+    lcd.print(">Rotate per hour");
+    lcd.setCursor(0, 1);
+    lcd.print(" Rotate slowly");
+    break;
+  case 2:
+    rotateModeSelection = 2;
+    lcd.clear();
+    lcd.print(" Rotate per hour");
+    lcd.setCursor(0, 1);
+    lcd.print(">Rotate slowly");
+    break;
+  default:
+    rotateModeSelection = 1;
+    lcd.clear();
+    lcd.print(">Rotate per hour");
+    lcd.setCursor(0, 1);
+    lcd.print(" Rotate slowly");
+    break;
+  }
+
+  while (true)
+  {
+    scheduler.execute();
+
+    currentStateCLK = digitalRead(PinRotaryEncoderCLK);
+    if (currentStateCLK != lastStateCLK) // for change status
+    {
+      if (digitalRead(PinRotaryEncoderDT) == currentStateCLK)
+      {
+        if (rotateModeSelection <= 1)
+        {
+          rotateModeSelection = 3;
+          lcd.clear();
+          lcd.print(" Rotate slowly");
+          lcd.setCursor(0, 1);
+          lcd.print(">Cancel");
+        }
+        else
+        {
+          rotateModeSelection--;
+
+          if (rotateModeSelection == 1)
+          {
+            lcd.clear();
+            lcd.print(">Rotate per hour");
+            lcd.setCursor(0, 1);
+            lcd.print(" Rotate slowly");
+          }
+          else if (rotateModeSelection == 2)
+          {
+            lcd.clear();
+            lcd.print(">Rotate slowly");
+            lcd.setCursor(0, 1);
+            lcd.print(" Cancel");
+          }
+        }
+      }
+      else
+      {
+        if (rotateModeSelection >= 3)
+        {
+          rotateModeSelection = 1;
+          lcd.clear();
+          lcd.print(">Rotate per hour");
+          lcd.setCursor(0, 1);
+          lcd.print(" Rotate slowly");
+        }
+        else
+        {
+          rotateModeSelection++;
+
+          if (rotateModeSelection == 2)
+          {
+            lcd.clear();
+            lcd.print(" Rotate per hour");
+            lcd.setCursor(0, 1);
+            lcd.print(">Rotate slowly");
+          }
+          else if (rotateModeSelection == 3)
+          {
+            lcd.clear();
+            lcd.print(" Rotate slowly");
+            lcd.setCursor(0, 1);
+            lcd.print(">Cancel");
+          }
+        }
+      }
+    }
+    lastStateCLK = currentStateCLK;
+
+    if (digitalRead(PinButtonRotaryEncoder) == ButtonPushed)
+    {
+      if (millis() - lastButtonPress > ButtonDebouncingTime && buttonActive == false)
+      {
+        buttonActive = true;
+        delay(300);
+        switch (rotateModeSelection)
+        {
+        case 1:
+          if(!selected)
+          {
+            turnMode = 1;
+            EEPROM.write(turnModeAddr,1);
+
+            serialPrintln(F("Selected Rotate per hour"));
+
+            break;
+          }
+        case 2:
+          if(!selected)
+          {
+            turnMode = 2;
+            EEPROM.write(turnModeAddr,2);
+            
+            serialPrintln(F("Selected Rotate slowly"));
+            break;
+          }
+
+          case 3:
+            if(!selected)
+            {
+              serialPrintln(F("Selected Cancel"));
+              break;
+            }
+        }
+        lcd.clear();
+        rotateModeSelection = 0;
+
+        EEPROM.write(StartServoPositionAddr, startServoPosition);
+        EEPROM.write(EndServoPositionAddr, endServoPosition);
+        middleServoPosition = int((startServoPosition + endServoPosition) /2 );
+
+        delay(300);
+        lastButtonPress = millis();
+        break;
+      }
+    }
+    else
+    {
+      if (buttonActive == true)
+      {
+        buttonActive = false;
+      }
+      lastButtonPress = millis();
+    }
+  }
+  lcdShowTask.enable();
+  initializeServo = true;
 }
 
 void lcdShow() // delay 53 millisecond
@@ -1652,12 +1851,7 @@ void sensor()
 
 void fan() // delay 1 millisecond
 {
-
-  if (mode == 1)
-  {
-    analogWrite(PinFan, TurnOnFan);
-  }
-  else
+  if(mode == 2)
   {
     if (fanTask.isFirstIteration())
     {
@@ -1703,7 +1897,6 @@ void fan() // delay 1 millisecond
       {
         analogWrite(PinFan, TurnOnFan);
         firstRunFanSpeed = false;
-        // serialPrintln(durationFanSpeedUpdate);
       }
       else if (currentMillis - previousTimeFanSpeed >= durationFanSpeedUpdate)
       {
@@ -1719,7 +1912,6 @@ void fan() // delay 1 millisecond
       {
         analogWrite(PinFan, TurnOffFan);
         firstRunFanAction = false;
-        // serialPrintln(durationFanActionUpdate);
       }
       else if (currentMillis - previousTimeFanAction >= durationFanActionUpdate)
       {
@@ -1729,35 +1921,63 @@ void fan() // delay 1 millisecond
       previousTimeFanSpeed = currentMillis;
     }
   }
+  else // mode 1 and 3 (maintaining and hatching)
+  {
+    analogWrite(PinFan, TurnOnFan);
+  }
 }
 
 void servoMotor() // delay most 2 millisecond
 {
   DateTime savedTimeStart(EEPROM.get(yearElapsedAddr, year), EEPROM.read(monthElapsedAddr), EEPROM.read(dayElapsedAddr), EEPROM.read(hourElapsedAddr), EEPROM.read(minuteElapsedAddr), EEPROM.read(secondElapsedAddr));
   TimeSpan timeElapsed = rtc.now() - savedTimeStart;
+  currentMinuteServo = timeElapsed.minutes();
 
-  // if (onlyOnceRotate)
-  //  {
-  //            onlyOnceRotate = false;
+  if(currentMinuteServo != previousMinuteServo || initializeServo)
+  {
+    previousMinuteServo = currentMinuteServo;
+    initializeServo = false;
+    if (mode == 1 || mode == 2) // if maitaining and Setter
+    {
+      float turnRatio = (endServoPosition - startServoPosition) / 60.00;
+      if (timeElapsed.hours() % 2 == 0)
+      {
+        int servoPos;
+        if(turnMode == 1)//(normal) Every 1 hour, rotate 90 degree
+        {
+          servoPos = startServoPosition;
+          asyncServo.goTo(servoPos);
+        }
+        else if(turnMode == 2)//(advanced) Short rotations every few minutes
+        {
+            servoPos = startServoPosition + int(ceil(timeElapsed.minutes() * turnRatio  ));
+            asyncServo.goTo(servoPos);
+        }
+        EEPROM.write(ServoPositionAddr, servoPos);
+      }
+      else if (timeElapsed.hours() % 2 == 1)
+      {
+        int servoPos;
+        if(turnMode == 1)//(normal) Every 1 hour, rotate 90 degree
+        {
+          servoPos = endServoPosition;
+          asyncServo.goTo(servoPos);
 
-  // }
-  if (mode == 1 || mode == 2) // if maitaining and Setter
-  {
-    if (timeElapsed.hours() % 2 == 0)
-    {
-      asyncServo.goTo(45);
-      EEPROM.write(ServoPositionAddr, 45);
+        }
+        else if(turnMode == 2)//(advanced) Short rotations every few minutes
+        {
+          servoPos = endServoPosition - int(ceil(timeElapsed.minutes() * turnRatio));
+          asyncServo.goTo(servoPos);
+        }
+
+        EEPROM.write(ServoPositionAddr, servoPos);
+      }
     }
-    else if (timeElapsed.hours() % 2 == 1)
+    else if (mode == 3) // if hatching
     {
-      asyncServo.goTo(135);
-      EEPROM.write(ServoPositionAddr, 135);
+      asyncServo.goTo(middleServoPosition);
+      EEPROM.write(ServoPositionAddr, middleServoPosition);
     }
-  }
-  else if (mode == 3) // if hatching
-  {
-    asyncServo.goTo(90);
-    EEPROM.write(ServoPositionAddr, 90);
   }
 }
 
@@ -1787,15 +2007,21 @@ void initializeEEPROM()
   //  EEPROM.write(hourElapsedAddr,21);
   //  EEPROM.write(dayElapsedAddr,6);
   //  EEPROM.write(monthElapsedAddr,5);
-  //  EEPROM.put(yearElapsedAddr,2023);
+  //  EEPROM.put(yearElapsedAddr,2024);
 
   //  EEPROM.write(ServoPositionAddr,45);
   //  EEPROM.write(modeAddr,3);
   //  EEPROM.write(H_thresholdAddr,60);
   //  EEPROM.put(T_thresholdAddr ,35.0);
   //  EEPROM.put(lcdBacklightTimerAddr,30);
+  //  EEPROM.write(turnModeAddr,1);
+  //  EEPROM.write(StartServoPositionAddr,45);
+  //  EEPROM.write(EndServoPositionAddr,135);
 
-  servoPosition = EEPROM.read(ServoPositionAddr);
+  previousServoPosition = EEPROM.read(ServoPositionAddr);
+  startServoPosition = EEPROM.read(StartServoPositionAddr);
+  endServoPosition = EEPROM.read(EndServoPositionAddr);
+  turnMode = EEPROM.read(turnModeAddr);
   mode = EEPROM.read(modeAddr);
 
   H_threshold = EEPROM.read(H_thresholdAddr);
@@ -1811,21 +2037,21 @@ void initializeEEPROM()
 
 void serialPrintln(String string)
 {
-#if __DEBUG__
-  Serial.println(string);
-#endif
+  #if __DEBUG__
+    Serial.println(string);
+  #endif
 }
 
 void serialPrint(String string)
 {
-#if __DEBUG__
-  Serial.print(string);
-#endif
+  #if __DEBUG__
+    Serial.print(string);
+  #endif
 }
 
 void serialPrintReport(String string)
 {
-#if __REPORT__
-  Serial.print(string);
-#endif
+  #if __REPORT__
+    Serial.print(string);
+  #endif
 }
