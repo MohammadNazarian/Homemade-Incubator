@@ -168,9 +168,8 @@ void setup()
 {
   // Serial
   Serial.begin(9600);
-  Serial.println(" ");
   delay(20);
-  serialPrintln(F("> Temperature and Humidity Controller For Incubator <"));
+  Serial.println(F("> Temperature and Humidity Controller For Incubator <"));
 
   // EEPROM
   initializeEEPROM();
@@ -1742,6 +1741,7 @@ void lcdShow() // delay 53 millisecond
       }
       else
       {
+        changedLcdShowStatus=true;
         lcd.clear();
         lcd.print("Temp is High!!!");
         lcd.setCursor(1, 3);
