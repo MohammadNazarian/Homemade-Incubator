@@ -138,6 +138,8 @@ int year = 1401; // for EEPROM.get()
 TimeSpan timeElapsedHloder;
 DateConvL dateC;
 byte previousDay = 0;
+byte previousMinute = 0;
+byte previousMinuteElapsed = 0;
 
 // LCD (I2C)
 // LiquidCrystal lcd(rs, en, d4, d5, d6, d7, backlightLCD, HIGH);
@@ -795,7 +797,7 @@ void setTempratureAndHumidity(double t_threshold, byte h_threshold)
   T_threshold = t_threshold;
   H_threshold = h_threshold;
   lcd.clear();
-  lcd.print("Set Temperature:");
+  lcd.print(F("Set Temperature:"));
   lcd.setCursor(0, 1);
   lcd.print((float)T_threshold);
   lcd.write((byte)2);
@@ -884,7 +886,7 @@ void setTempratureAndHumidity(double t_threshold, byte h_threshold)
   }
 
   lcd.clear();
-  lcd.print("Set Humidity:");
+  lcd.print(F("Set Humidity:"));
   lcd.setCursor(0, 1);
   lcd.print(H_threshold);
   lcd.print("%");
@@ -1702,7 +1704,7 @@ void lcdShow() // delay 53 millisecond
         
         lcd.setCursor(2, 0);
         lcd.print(baselineTemp);
-        lcd.setCursor(9, 0);
+        lcd.setCursor(10, 0);
         lcd.print(T_threshold);
 
         lcd.setCursor(5, 1);
@@ -1760,6 +1762,7 @@ void lcdShow() // delay 53 millisecond
       {
         changedLcdShowStatus = false;
         previousDay = now.day();
+        previousMinute = now.minute();
         lcd.clear();
         lcd.print("Date: ");
 
@@ -1776,20 +1779,23 @@ void lcdShow() // delay 53 millisecond
         lcd.setCursor(6, 0);
         lcd.print(String(dateC.global_year,DEC) + "/" + String(dateC.global_month,DEC) + "/" + String(dateC.global_day,DEC));
       }
+      if(now.minute() != previousMinute)
+      {
+        previousMinute = now.minute();
+        lcd.setCursor(6, 1);
+        lcd.print("          ");
+      }
 
       lcd.setCursor(6, 1);
       lcd.print(String(now.hour(),DEC) + ":" + String(now.minute(),DEC) + ":" + String(now.second(),DEC));
     }
     else if (lcdShowStatus == 2)
     {
-
-      // serialPrintln("Saved in EEPROM > " + String(EEPROM.get(yearElapsedAddr, year)) + "/" + String(EEPROM.read(monthElapsedAddr)) + "/" + String(EEPROM.read(dayElapsedAddr)) + "|| " + String(EEPROM.read(hourElapsedAddr)) + ":" + String(EEPROM.read(minuteElapsedAddr)) + ":"+ String(EEPROM.read(secondElapsedAddr)));
-      // serialPrintln("RTC NOW > " +  String(rtc.now().year()) + "/" + String(rtc.now().month()) + "/" + String(rtc.now().day()) + "|| " + String(rtc.now().hour()) + ":" + String(rtc.now().minute()) + ":"+ String(rtc.now().second()));
-      // serialPrintln("timeElapsed > days: " + String(timeElapsed.days()) +  " hours: " + String(timeElapsed.hours())  +  " minutes: " + String(timeElapsed.minutes()) +  " seconds: " + String(timeElapsed.seconds()));
-
       if(changedLcdShowStatus)
       {
         changedLcdShowStatus = false;
+
+        previousMinuteElapsed = timeElapsedHloder.minutes();
 
         lcd.clear();
         lcd.print("Day:");
@@ -1799,33 +1805,46 @@ void lcdShow() // delay 53 millisecond
         lcd.setCursor(0, 1);
         lcd.print("Min:");
 
-        lcd.setCursor(9, 1);
+        lcd.setCursor(8, 1);
         lcd.print("Sec:");
       }
-      lcd.setCursor(5, 0);
-      lcd.print(" ");
+
+      if(previousMinuteElapsed != timeElapsedHloder.minutes())
+      {
+        lcd.setCursor(4, 0);
+        lcd.print("  ");
+
+        lcd.setCursor(13, 0);
+        lcd.print("  ");
+
+        lcd.setCursor(4, 1);
+        lcd.print("  ");
+
+        lcd.setCursor(12, 1);
+        lcd.print("  ");
+      }
+
       lcd.setCursor(4, 0);
       lcd.print(timeElapsedHloder.days());
 
-      lcd.setCursor(15, 0);
-      lcd.print(" ");
       lcd.setCursor(13, 0);
       lcd.print(timeElapsedHloder.hours());
 
-      lcd.setCursor(5, 1);
-      lcd.print(" ");
       lcd.setCursor(4, 1);
       lcd.print(timeElapsedHloder.minutes());
 
-      lcd.setCursor(15, 1);
-      lcd.print(" ");
-      lcd.setCursor(13, 1);
+      lcd.setCursor(12, 1);
       lcd.print(timeElapsedHloder.seconds());
+
+      // serialPrintln("Saved in EEPROM > " + String(EEPROM.get(yearElapsedAddr, year)) + "/" + String(EEPROM.read(monthElapsedAddr)) + "/" + String(EEPROM.read(dayElapsedAddr)) + "|| " + String(EEPROM.read(hourElapsedAddr)) + ":" + String(EEPROM.read(minuteElapsedAddr)) + ":"+ String(EEPROM.read(secondElapsedAddr)));
+      // serialPrintln("RTC NOW > " +  String(rtc.now().year()) + "/" + String(rtc.now().month()) + "/" + String(rtc.now().day()) + "|| " + String(rtc.now().hour()) + ":" + String(rtc.now().minute()) + ":"+ String(rtc.now().second()));
+      // serialPrintln("timeElapsed > days: " + String(timeElapsed.days()) +  " hours: " + String(timeElapsed.hours())  +  " minutes: " + String(timeElapsed.minutes()) +  " seconds: " + String(timeElapsed.seconds()));
     }
   }
   else
   {
-    lcdBacklightTask.disable(); // If there is a problem, the screen will stay on for information
+    changedLcdShowStatus = true;
+    lcdBacklightTask.disable();
     lcd.backlight();
     lcd.clear();
     lcd.print("No Sensor data.");
