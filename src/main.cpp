@@ -43,6 +43,7 @@ void setBacklight();
 void setRotateMode();
 void setRotateAngles();
 // Other
+void checkEEPROM();
 void initializeEEPROM();
 void rotaryEncoderState();
 
@@ -53,10 +54,10 @@ void serialPrintReport(String string);
 // A4,A5 for I2C
 // #define PinRotaryEncoderCLK PC0 // A0
 // #define PinRotaryEncoderDT PC1  // A1
-#define PinRotaryEncoderCLK A0
+#define PinButtonRotaryEncoder A0
 #define PinRotaryEncoderDT A1
-#define PinButtonRotaryEncoder A2
-#define PinServo 3 // PWM
+#define PinRotaryEncoderCLK A2
+#define PinServo 3 // PWM 
 #define PinBuzzer 4
 #define PinHeater 5 // PWM
 #define PinFan 6    // PWM
@@ -98,7 +99,7 @@ byte timeStatus = 0;
 unsigned long autoSetCounter = 0;
 unsigned long autoSetDuration = 10000;
 byte menuSelection = 0;
-byte mode = 3; // Mode 1 is Maintaining , Mode 2 is Incubation , Mode 3 is Hatching
+byte mode = 2; // Mode 1 is Maintaining , Mode 2 is Incubation , Mode 3 is Hatching
 
 // Rotary Encoder
 int currentStateCLK;
@@ -171,7 +172,20 @@ void setup()
   delay(20);
   Serial.println(F("> Temperature and Humidity Controller For Incubator <"));
 
+  // RTC
+  if (!rtc.begin())
+  {
+    Serial.println("Couldn't find RTC");
+    delay(2000);
+  }
+  if (!rtc.isrunning())
+  {
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
+  // rtc.adjust(DateTime(2023, 0, Day, Hrs, Min, Sec));
+
   // EEPROM
+  checkEEPROM();
   initializeEEPROM();
 
   // Rotary Encoder
@@ -216,22 +230,11 @@ void setup()
   lcd.print("sensor...");
 
   serialPrintln(F("Testing sensor..."));
-  // RTC
-  if (!rtc.begin())
-  {
-    serialPrintln("Couldn't find RTC");
-    delay(2000);
-  }
-  if (!rtc.isrunning())
-  {
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-  }
-  // rtc.adjust(DateTime(2023, 0, Day, Hrs, Min, Sec));
 
   // AHT10 Sensor
   while (AHT10Sensor.begin() != true)
   {
-    serialPrintln(F("AHT10 not connected or fail to load calibration coefficient"));
+    Serial.println(F("AHT10 not connected or fail to load calibration coefficient"));
     //(F()) save string to flash & keeps dynamic memory free
     lcd.clear();
     lcd.print("AHT10 error");
@@ -2056,8 +2059,9 @@ void lcdBacklight()
   }
 }
 
-void initializeEEPROM()
+void checkEEPROM()
 {
+  //initialize EEPROM if not exist
   //  EEPROM.write(secondElapsedAddr,00); // for set Values in EEPROM
   //  EEPROM.write(minuteElapsedAddr,52);
   //  EEPROM.write(hourElapsedAddr,21);
@@ -2074,6 +2078,71 @@ void initializeEEPROM()
   //  EEPROM.write(StartServoPositionAddr,45);
   //  EEPROM.write(EndServoPositionAddr,135);
 
+
+  //Time Elapsed
+  if( EEPROM.get(yearElapsedAddr,year) < 0)
+  {
+    EEPROM.put(yearElapsedAddr ,rtc.now().year());
+  }
+  if(EEPROM.read(monthElapsedAddr) > 12)
+  {
+    EEPROM.write(monthElapsedAddr,rtc.now().month());
+  }
+  if(EEPROM.read(dayElapsedAddr) > 31)
+  {
+    EEPROM.write(dayElapsedAddr,rtc.now().day());
+  }
+  if(EEPROM.read(minuteElapsedAddr) > 60)
+  {
+    EEPROM.write(minuteElapsedAddr,rtc.now().minute());
+  }
+  if(EEPROM.read(secondElapsedAddr) > 60)
+  {
+    EEPROM.write(secondElapsedAddr,rtc.now().second());
+  }
+
+  //Servo
+  if( EEPROM.read(ServoPositionAddr) > 180)
+  {
+    EEPROM.write(ServoPositionAddr,startServoPosition);
+  }
+  if( EEPROM.read(StartServoPositionAddr) > startServoPosition)
+  {
+    EEPROM.write(StartServoPositionAddr,45);
+  }
+  if( EEPROM.read(EndServoPositionAddr) > endServoPosition)
+  {
+    EEPROM.write(EndServoPositionAddr,135);
+  }
+  if( EEPROM.read(turnModeAddr) != 1 &&  EEPROM.read(turnModeAddr) != 2)//only value 1 and 2 is correct
+  {
+    EEPROM.write(turnModeAddr,1);
+  }
+  
+  //mode
+  if( EEPROM.read(modeAddr) != 1 &&  EEPROM.read(modeAddr) != 2 &&  EEPROM.read(modeAddr) != 3)//only value 1 and 2 and 3 is correct
+  {
+    EEPROM.write(modeAddr,2);
+  }
+
+  //Sensor
+  if( EEPROM.read(H_thresholdAddr) > 100)
+  {
+    EEPROM.write(H_thresholdAddr,60);
+  }
+  if( EEPROM.get(T_thresholdAddr,T_threshold) > 100 || isnan(EEPROM.get(T_thresholdAddr,T_threshold)))
+  {
+    EEPROM.put(T_thresholdAddr ,37.0);
+  }
+
+  //LCD
+  if( EEPROM.get(lcdBacklightTimerAddr,lcdBacklightTimer) < 0)
+  {
+    EEPROM.put(lcdBacklightTimerAddr ,30);
+  }
+}
+void initializeEEPROM()
+{
   previousServoPosition = EEPROM.read(ServoPositionAddr);
   startServoPosition = EEPROM.read(StartServoPositionAddr);
   endServoPosition = EEPROM.read(EndServoPositionAddr);
